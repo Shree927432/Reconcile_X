@@ -94,6 +94,16 @@ if book_file and portal_file:
             indexer = recordlinkage.Index()
             indexer.block("Name_Initial") 
             candidate_links = indexer.index(book_df, portal_df)
+
+            book_df['Name_Clean'] = book_df['Name_Clean'].fillna("").astype(str)
+            portal_df['Name_Clean'] = portal_df['Name_Clean'].fillna("").astype(str)
+            
+            book_df['Invoice_Clean'] = book_df['Invoice_Clean'].fillna("").astype(str)
+            portal_df['Invoice_Clean'] = portal_df['Invoice_Clean'].fillna("").astype(str)
+            
+            book_df['GST_Clean'] = book_df['GST_Clean'].fillna("").astype(str)
+            portal_df['GST_Clean'] = portal_df['GST_Clean'].fillna("").astype(str)
+
             
             # --- 4.5 Compare Engine ---
             compare_cl = recordlinkage.Compare()
