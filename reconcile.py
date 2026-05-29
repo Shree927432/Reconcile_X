@@ -50,15 +50,24 @@ if book_file and portal_file:
     if st.button("Run Reconciliation Engine", type="primary", use_container_width=True):
      with st.spinner("Cleaning data and running RecordLinkage Engine..."):
             
-            # --- 4.1 Load Data & ARMOR THE INDICES ---
+           # --- 4.1 Load Data & ARMOR THE INDICES ---
             book_df = pd.read_excel(book_file, skiprows=6)
             book_df = book_df.iloc[:-1] 
             book_df = book_df.reset_index(drop=True) 
             
-            portal_df = pd.read_excel(portal_file, sheet_name="B2B", skiprows=5)
-            portal_df = portal_df.rename(columns={'Unnamed: 0':'Supplier GSTIN', 'Unnamed: 1':'Trade/Legal Name'})
-            portal_df = portal_df.reset_index(drop=True) 
+            # --- THE FIX: Flexible Sheet Reader ---
+            portal_xls = pd.ExcelFile(portal_file)
+            if "B2B" in portal_xls.sheet_names:
+                portal_df = pd.read_excel(portal_xls, sheet_name="B2B", skiprows=5)
+            else:
+                # If "B2B" is missing, just grab the first sheet available
+                fallback_sheet = portal_xls.sheet_names[0]
+                portal_df = pd.read_excel(portal_xls, sheet_name=fallback_sheet, skiprows=5)
+                st.warning(f"⚠️ Note: Could not find a sheet named 'B2B'. We used '{fallback_sheet}' instead.")
             
+            portal_df = portal_df.rename(columns={'Unnamed: 0':'Supplier GSTIN', 'Unnamed: 1':'Trade/Legal Name'})
+            portal_df = portal_df.reset_index(drop=True)
+         
             # Select Relevant Columns
             book_df = book_df[['Particulars', 'Supplier Invoice No.', 'GSTIN/UIN', 'Gross Total']] 
             portal_df = portal_df[['Supplier GSTIN', 'Trade/Legal Name', 'Invoice number', 'Invoice Value(₹)']]
