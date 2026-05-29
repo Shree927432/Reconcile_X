@@ -3,3 +3,4 @@ pandas
 recordlinkage
 openpyxl
 xlsxwriter
+jellyfish==0.11.2
