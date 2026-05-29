@@ -5,7 +5,7 @@ import re
 import io
 
 # --- 1. WEB UI SETUP ---
-st.set_page_config(page_title="GST Reconciliation Engine", layout="wide")
+st.set_page_config(page_title="ReconcileX", layout="wide")
 st.title("⚡ Automated GST Reconciliation")
 st.markdown("Upload your Book and Portal data to automatically match invoices using weighted AI scoring.")
 
