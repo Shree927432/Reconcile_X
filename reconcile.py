@@ -6,7 +6,7 @@ import io
 
 # --- 1. WEB UI SETUP ---
 st.set_page_config(page_title="ReconcileX", layout="wide")
-st.title("⚡ Automated GST Reconciliation")
+st.title("⚡ReconcileX")
 st.markdown("Upload your Book and Portal data to automatically match invoices using weighted AI scoring.")
 
 # --- 2. UPLOAD ZONE ---
@@ -48,23 +48,22 @@ def clean_gstin(gst):
 # --- 4. EXECUTION ENGINE ---
 if book_file and portal_file:
     if st.button("Run Reconciliation Engine", type="primary", use_container_width=True):
-        with st.spinner("Cleaning data and running RecordLinkage Engine..."):
+     with st.spinner("Cleaning data and running RecordLinkage Engine..."):
             
-            # 4.1 Load Data & ARMOR THE INDICES
+            # --- 4.1 Load Data & ARMOR THE INDICES ---
             book_df = pd.read_excel(book_file, skiprows=6)
-            book_df = book_df.iloc[:-1] # Remove total row at bottom if it exists
-            book_df = book_df.reset_index(drop=True) # FIX: Guarantee clean index
+            book_df = book_df.iloc[:-1] 
+            book_df = book_df.reset_index(drop=True) 
             
             portal_df = pd.read_excel(portal_file, sheet_name="B2B", skiprows=5)
             portal_df = portal_df.rename(columns={'Unnamed: 0':'Supplier GSTIN', 'Unnamed: 1':'Trade/Legal Name'})
-            portal_df = portal_df.reset_index(drop=True) # FIX: Guarantee clean index
+            portal_df = portal_df.reset_index(drop=True) 
             
             # Select Relevant Columns
             book_df = book_df[['Particulars', 'Supplier Invoice No.', 'GSTIN/UIN', 'Gross Total']] 
             portal_df = portal_df[['Supplier GSTIN', 'Trade/Legal Name', 'Invoice number', 'Invoice Value(₹)']]
             
-            # 4.2 Apply Cleaning & BULLETPROOF DATA TYPES
-            # FIX: Added .astype(str) to forcefully prevent AttributeError crashes
+            # --- 4.2 Apply Cleaning & BULLETPROOF STRINGS ---
             book_df["Invoice_Clean"] = book_df['Supplier Invoice No.'].apply(clean_invoice).astype(str)
             portal_df["Invoice_Clean"] = portal_df['Invoice number'].apply(clean_invoice).astype(str)
             
@@ -77,11 +76,17 @@ if book_file and portal_file:
             book_df["GST_Clean"] = book_df['GSTIN/UIN'].apply(clean_gstin).astype(str)
             portal_df["GST_Clean"] = portal_df['Supplier GSTIN'].apply(clean_gstin).astype(str)
             
+            # --- 4.3 Create Blocking Keys (THE FIX) ---
+            # This extracts the first letter of the clean name to act as the "Room" 
+            book_df["Name_Initial"] = book_df['Name_Clean'].str[0].fillna('')
+            portal_df["Name_Initial"] = portal_df['Name_Clean'].str[0].fillna('')
+            
+            # --- 4.4 Indexing (Blocking) ---
             indexer = recordlinkage.Index()
-            indexer.block("Name_Initial", "Name_Initial")
+            indexer.block("Name_Initial") 
             candidate_links = indexer.index(book_df, portal_df)
             
-            # 4.4 Compare Engine
+            # --- 4.5 Compare Engine ---
             compare_cl = recordlinkage.Compare()
             compare_cl.string("Name_Clean", "Name_Clean", method="jarowinkler", threshold=0.75, label="Name_Match")
             compare_cl.exact("Invoice_Clean", "Invoice_Clean", label="Invoice_Match")
@@ -89,6 +94,7 @@ if book_file and portal_file:
             compare_cl.exact("GST_Clean", "GST_Clean", label="GSTIN_Match")
             
             features = compare_cl.compute(candidate_links, book_df, portal_df)
+            
             
             # 4.5 Weighted Cascading System
             features['Total_Score'] = (
