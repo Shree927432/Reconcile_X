@@ -50,33 +50,32 @@ if book_file and portal_file:
     if st.button("Run Reconciliation Engine", type="primary", use_container_width=True):
         with st.spinner("Cleaning data and running RecordLinkage Engine..."):
             
-            # 4.1 Load Data
+            # 4.1 Load Data & ARMOR THE INDICES
             book_df = pd.read_excel(book_file, skiprows=6)
             book_df = book_df.iloc[:-1] # Remove total row at bottom if it exists
+            book_df = book_df.reset_index(drop=True) # FIX: Guarantee clean index
             
             portal_df = pd.read_excel(portal_file, sheet_name="B2B", skiprows=5)
             portal_df = portal_df.rename(columns={'Unnamed: 0':'Supplier GSTIN', 'Unnamed: 1':'Trade/Legal Name'})
+            portal_df = portal_df.reset_index(drop=True) # FIX: Guarantee clean index
             
             # Select Relevant Columns
             book_df = book_df[['Particulars', 'Supplier Invoice No.', 'GSTIN/UIN', 'Gross Total']] 
             portal_df = portal_df[['Supplier GSTIN', 'Trade/Legal Name', 'Invoice number', 'Invoice Value(₹)']]
             
-            # 4.2 Apply Cleaning
-            book_df["Invoice_Clean"] = book_df['Supplier Invoice No.'].apply(clean_invoice)
-            portal_df["Invoice_Clean"] = portal_df['Invoice number'].apply(clean_invoice)
+            # 4.2 Apply Cleaning & BULLETPROOF DATA TYPES
+            # FIX: Added .astype(str) to forcefully prevent AttributeError crashes
+            book_df["Invoice_Clean"] = book_df['Supplier Invoice No.'].apply(clean_invoice).astype(str)
+            portal_df["Invoice_Clean"] = portal_df['Invoice number'].apply(clean_invoice).astype(str)
             
-            book_df["Name_Clean"] = book_df['Particulars'].apply(clean_client_name)
-            portal_df["Name_Clean"] = portal_df['Trade/Legal Name'].apply(clean_client_name)
+            book_df["Name_Clean"] = book_df['Particulars'].apply(clean_client_name).astype(str)
+            portal_df["Name_Clean"] = portal_df['Trade/Legal Name'].apply(clean_client_name).astype(str)
             
             book_df["Total_Clean"] = book_df['Gross Total'].apply(clean_and_round_number)
             portal_df["Total_Clean"] = portal_df['Invoice Value(₹)'].apply(clean_and_round_number)
             
-            book_df["GST_Clean"] = book_df['GSTIN/UIN'].apply(clean_gstin)
-            portal_df["GST_Clean"] = portal_df['Supplier GSTIN'].apply(clean_gstin)
-            
-            # 4.3 Indexing (Blocking)
-            book_df["Name_Initial"] = book_df['Name_Clean'].str[0].fillna('')
-            portal_df["Name_Initial"] = portal_df['Name_Clean'].str[0].fillna('')
+            book_df["GST_Clean"] = book_df['GSTIN/UIN'].apply(clean_gstin).astype(str)
+            portal_df["GST_Clean"] = portal_df['Supplier GSTIN'].apply(clean_gstin).astype(str)
             
             indexer = recordlinkage.Index()
             indexer.block("Name_Initial", "Name_Initial")
