@@ -1,11 +1,19 @@
 import streamlit as st
 import pandas as pd
+
+# --- DEPENDENCY HELL FIX: The Monkey Patch ---
+# We force the new Jellyfish library to use the old formula name 
+# so RecordLinkage doesn't crash when it looks for it.
+import jellyfish
+if not hasattr(jellyfish, 'jaro_winkler'):
+    jellyfish.jaro_winkler = jellyfish.jaro_winkler_similarity
+
 import recordlinkage 
 import re
 import io
 
 # --- 1. WEB UI SETUP ---
-st.set_page_config(page_title="GST Reconciliation Engine", layout="wide")
+st.set_page_config(page_title="ReconcileX | GST Engine", layout="wide")
 st.title("⚡ ReconcileX")
 st.markdown("Upload your Book and Portal data to automatically match invoices using weighted AI scoring.")
 
@@ -17,7 +25,7 @@ with col2:
     portal_file = st.file_uploader("Upload Portal Excel (GSTR-2B)", type=["xlsx", "xls"])
 
 # --- 3. BULLETPROOF CLEANING FUNCTIONS ---
-# We no longer return empty strings (""). We return "UNKNOWN" to prevent Cython backend crashes.
+# We return "UNKNOWN" instead of "" to prevent C-backend divide-by-zero crashes.
 def clean_invoice(number):
     if pd.isna(number): return "UNKNOWN"
     text = str(number).upper().strip()
@@ -58,9 +66,8 @@ if book_file and portal_file:
             try:
                 # 4.1 Load Data & ARMOR THE INDICES
                 book_df = pd.read_excel(book_file, skiprows=6)
-                # Ensure we don't slice an empty dataframe
                 if len(book_df) > 0:
-                    book_df = book_df.iloc[:-1] 
+                    book_df = book_df.iloc[:-1] # Drop the total row if it exists
                 book_df = book_df.reset_index(drop=True) 
                 
                 # Flexible Sheet Reader for Portal Data
@@ -75,7 +82,7 @@ if book_file and portal_file:
                 portal_df = portal_df.rename(columns={'Unnamed: 0':'Supplier GSTIN', 'Unnamed: 1':'Trade/Legal Name'})
                 portal_df = portal_df.reset_index(drop=True) 
                 
-                # Check if essential columns exist before proceeding
+                # Check for essential columns
                 book_cols_needed = ['Particulars', 'Supplier Invoice No.', 'GSTIN/UIN', 'Gross Total']
                 portal_cols_needed = ['Supplier GSTIN', 'Trade/Legal Name', 'Invoice number', 'Invoice Value(₹)']
                 
@@ -89,7 +96,7 @@ if book_file and portal_file:
                     st.error(f"Missing columns in Portal file: {missing_portal}")
                     st.stop()
                 
-                # Select Relevant Columns
+                # Isolate required columns
                 book_df = book_df[book_cols_needed].copy()
                 portal_df = portal_df[portal_cols_needed].copy()
                 
@@ -106,11 +113,11 @@ if book_file and portal_file:
                 book_df["GST_Clean"] = book_df['GSTIN/UIN'].apply(clean_gstin)
                 portal_df["GST_Clean"] = portal_df['Supplier GSTIN'].apply(clean_gstin)
                 
-                # 4.3 Create Blocking Keys
-                book_df["Name_Initial"] = book_df['Name_Clean'].str[0]
-                portal_df["Name_Initial"] = portal_df['Name_Clean'].str[0]
+                # 4.3 Create Blocking Keys (The "Rooms")
+                book_df["Name_Initial"] = book_df['Name_Clean'].str[0].fillna('U')
+                portal_df["Name_Initial"] = portal_df['Name_Clean'].str[0].fillna('U')
                 
-                # 4.4 Indexing (Blocking)
+                # 4.4 Indexing (Blocking Phase)
                 indexer = recordlinkage.Index()
                 indexer.block("Name_Initial")
                 candidate_links = indexer.index(book_df, portal_df)
@@ -119,7 +126,7 @@ if book_file and portal_file:
                     st.error("No potential matches found during the blocking phase. Check your files.")
                     st.stop()
                 
-                # 4.5 Compare Engine (With missing_value safety nets)
+                # 4.5 Compare Engine (The Detective)
                 compare_cl = recordlinkage.Compare()
                 compare_cl.string("Name_Clean", "Name_Clean", method="jarowinkler", threshold=0.75, missing_value=0.0, label="Name_Match")
                 compare_cl.exact("Invoice_Clean", "Invoice_Clean", missing_value=0, label="Invoice_Match")
@@ -136,7 +143,7 @@ if book_file and portal_file:
                     features['GSTIN_Match'] * 1.0      
                 )
                 
-                # Filter Matches
+                # Filter Matches into Tiers
                 perfect_matches = features[features['Total_Score'] == 7.0]
                 book_perfect_indices = perfect_matches.index.get_level_values(0)
                 portal_perfect_indices = perfect_matches.index.get_level_values(1)
@@ -160,7 +167,7 @@ if book_file and portal_file:
                 book_probable_indices = probable_matches.index.get_level_values(0)
                 portal_probable_indices = probable_matches.index.get_level_values(1)
                 
-                # Retrieve Subsets
+                # Retrieve Subsets for final Excel
                 perfect_reconciliation  = pd.concat([
                     book_df.loc[book_perfect_indices, book_cols_needed].reset_index(drop=True),
                     portal_df.loc[portal_perfect_indices, portal_cols_needed].reset_index(drop=True)
@@ -176,7 +183,7 @@ if book_file and portal_file:
                     portal_df.loc[portal_probable_indices, portal_cols_needed].reset_index(drop=True)
                 ], axis=1)
                 
-                # Unmatched
+                # Gather Unmatched Invoices
                 all_matched_book_idx = pd.Index(book_perfect_indices.append(book_strong_indices).append(book_probable_indices)).unique()
                 all_matched_portal_idx = pd.Index(portal_perfect_indices.append(portal_strong_indices).append(portal_probable_indices)).unique()
                 
@@ -196,6 +203,7 @@ if book_file and portal_file:
                 
                 excel_data = output.getvalue()
                 
+                # Generate Download Button
                 st.download_button(
                     label="📥 Download Final Reconciliation Report",
                     data=excel_data,
